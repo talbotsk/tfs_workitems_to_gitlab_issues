@@ -1,0 +1,106 @@
+# TODO - Debug
+name: Migrate Work Items
+
+on:
+  workflow_dispatch:
+    inputs: 
+      tfs_username:
+        description: 'tfs_username'
+        required: true
+        default: 'xxx'
+      tfs_password:
+        description: 'tfs_password'
+        required: true
+        default: '***'
+      tfs_url:
+        description: 'tfs_url'
+        required: true
+        default: 'http://tfs:8080/tfs/TFSProjectCollection'
+      tfs_project:
+        description: 'tfs_project'
+        required: true
+        default: 'TfsProject'
+      tfs_team:
+        description: 'tfs_team'
+        required: true
+        default: 'TfsTeam'
+      tfs_area_path:
+        description: 'TFS area path to migrate - uses the UNDER operator'
+        required: true
+        default: 'migrate'
+      tfs_migrate_closed_workitems:
+        description: 'Migrate closed work items'
+        required: true
+        type: boolean
+        default: 'true'
+      tfs_production_run:
+        description: tag migrated work items with migrated-to-gitlab and add discussion comment
+        required: true
+        type: boolean
+        default: 'true'
+      gl_group:
+        description: 'gl_group'
+        required: true
+        default: 'GlGroup'
+      gl_project:
+        description: 'gl_project'
+        required: true
+        default: 'GlProject'
+      gl_update_assigned_to:
+        description: 'Update Assigned To'
+        required: true
+        type: boolean
+        default: 'true'
+      gl_assigned_to_user_suffix:
+        description: 'EMU suffix'
+        required: true
+        default: ''
+      gl_add_tfs_comments:
+        description: 'Add TFS Comments'
+        required: true
+        type: boolean
+        default: 'true'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@main
+      
+      # - uses: tibdex/gitlab-app-token@v1
+      #   id: get_installation_token
+      #   with: 
+      #     app_id: 179484
+      #     installation_id: 23995058
+      #     private_key: ${{ secrets.PRIVATE_KEY }}
+      
+      - name: run migration
+        shell: pwsh
+        run: |
+          # run migration script
+          
+          # cleaning up bools
+          $tfs_migrate_closed_workitems=$false
+          $tfs_production_run=$false
+          $gl_update_assigned_to=$false
+          $gl_add_tfs_comments=$false
+          
+          if("${{ gitlab.event.inputs.tfs_migrate_closed_workitems }}" -eq "true") {
+            $tfs_migrate_closed_workitems=$true
+          }
+
+          if("${{ gitlab.event.inputs.tfs_production_run }}" -eq "true") {
+            $tfs_production_run=$true
+          }
+
+          if("${{ gitlab.event.inputs.gl_update_assigned_to }}" -eq "true") {
+            $gl_update_assigned_to=$true
+          }
+          
+          if("${{ gitlab.event.inputs.gl_add_tfs_comments }}" -eq "true") {
+            $gl_add_tfs_comments=$true
+          }
+          
+          ./tfs_workitems_to_gitlab_issues.ps1 -tfs_username "${{ gitlab.event.inputs.tfs_username }}" -tfs_password "${{ gitlab.event.inputs.tfs_password }}" -tfs_url "${{ gitlab.event.inputs.tfs_url }}" -tfs_project "${{ gitlab.event.inputs.tfs_project }}" -tfs_team "${{ gitlab.event.inputs.tfs_team }}" -tfs_area_path "${{ gitlab.event.inputs.tfs_area_path }}" -tfs_migrate_closed_workitems $tfs_migrate_closed_workitems -tfs_production_run $tfs_production_run -gl_group "${{ gitlab.event.inputs.gl_group }}" -gl_project "${{ gitlab.event.inputs.gl_project }}" -gl_update_assigned_to $gl_update_assigned_to -gl_assigned_to_user_suffix "${{ gitlab.event.inputs.gl_assigned_to_user_suffix }}" -gl_add_tfs_comments $gl_add_tfs_comments
+          
