@@ -15,7 +15,7 @@ on:
       tfs_url:
         description: 'tfs_url'
         required: true
-        default: 'http://tfs:8080/tfs/TFSProjectCollection'
+        default: 'http://tfs1:8080/tfs/TFSProjectCollection'
       tfs_project:
         description: 'tfs_project'
         required: true

@@ -4,11 +4,15 @@ PowerShell script to migrate TFS work items to GitLab Issues
 
 ### Prerequisites
 
-1. Install TFS (tfx-cli) and GilLab (glab) cli where this is running (ie: action or locally)
-2. In GitLab, [create a label](https://docs.gitlab.com/ee/user/project/labels.html#create-a-label) for EACH work item type that is being migrated (as lower case) 
+1. Install Node.js
+2. Install TFS CLI (npm install -g tfx-cli@0.6.4 not https://www.npmjs.com/package/tfx-cli due to error "Failed to find api location for area: Location id")
+3. Install GilLab CLI (glab cli https://gitlab.com/gitlab-org/cli/-/releases) where this is running (ie: action or locally)
+4. Set GitLab Host/Configuration in c:\Users\USER\.config\glab-cli\config.yml
+5. In GitLab, [create a label](https://docs.gitlab.com/ee/user/project/labels.html#create-a-label) for EACH work item type that is being migrated (as lower case) 
     - ie: "user story", "bug", "task", "issue", "feature"
-3. Define under what area path you want to migrate
+6. Define under what area path you want to migrate
     - You can modify the WIQL if you want to use a different way to migrate work items, such as `[TAG] = "migrate"`
+7. Use PowerShell 5.1
 
 ### Things it migrates
 
@@ -23,12 +27,13 @@ PowerShell script to migrate TFS work items to GitLab Issues
     - Original work item url 
     - Basic details in a collapsed markdown table
     - Entire work item as JSON in a collapsed section
-7. Creates tag "copied-to-gitlab" and a comment on the TFS work item with `-$tfs_production_run $true"`. The tag prevents duplicate copying.
+    - History comments
+    - Attachments
+7. Creates tag "copied-to-gitlab" (and a comment) on the TFS work item with `-$tfs_production_run $true"`. The tag prevents duplicate copying.
 
 ### To Do
 1. Provide user mapping option
-2. Debug the tfs_workitems_to_gitlab_issues.ps1
-3. Debug the .gitlab\workflows\migrate-work-items.yml
+2. Debug the .gitlab\workflows\migrate-work-items.yml
 
 ### Things it won't ever migrate
 1. Created date/update dates
@@ -51,7 +56,7 @@ PowerShell script to migrate TFS work items to GitLab Issues
 <!-- 1. Create the following action secrets:
     + `ADO_PAT`: Azure DevOps PAT with appropriate permissions to read work items
     + `PRIVATE_KEY`: The contents of the private key created and downloaded in step #2 -->
-1. Use the [action](.github/workflows/migrate-work-items.yml) and update the group and project name obtained in step #3
+<!-- 1. Use the [action](.github/workflows/migrate-work-items.yml) and update the group and project name obtained in step #3 -->
 <!-- 1. Update any defaults in the [action](.gitlab/workflows/migrate-work-items.yml) (ie: TFS team and project, GitLab project/repo) -->
 1. Ensure the action exists in the repo's default branch
 1. Run the workflow
@@ -64,7 +69,7 @@ Using the GitLab project might be better so you don't reach a limit on your GitL
 ./tfs_workitems_to_gitlab_issues.ps1 `
     -tfs_username "xxx" `
     -tfs_password "***" `
-    -tfs_url "http://tfs:8080/tfs/TFSProjectCollection" `
+    -tfs_url "http://tfs1:8080/tfs/TFSProjectCollection" `
     -tfs_project "TailWindTraders" `
     -tfs_team "TailWindTraders Team" `
     -tfs_area_path "TailWindTraders\AREA_PATH_LEVEL_1\AREA_PATH_LEVEL_2\..." `
@@ -74,7 +79,9 @@ Using the GitLab project might be better so you don't reach a limit on your GitL
     -gl_project "MyProject" `
     -gl_update_assigned_to $true `
     -gl_assigned_to_user_suffix "" `
-    -gl_add_tfs_comments $true
+    -gl_add_tfs_comments $true `
+    -gl_host https://git `
+    -gl_pat xxx
 ```
 
 ## Script Options
@@ -94,5 +101,7 @@ Using the GitLab project might be better so you don't reach a limit on your GitL
 | `-gl_update_assigned_to`        | No       | `$false` | Switch to update the GitLab issue's assignee based on the username portion of an email address (before the @ sign)                          |
 | `-gl_assigned_to_user_suffix`   | No       | `""`     | Used in conjunction with `-gl_update_assigned_to`, used to suffix the username, e.g. if using GitLab Enterprise Managed User (EMU) instance |
 | `-gl_add_tfs_comments`          | No       | `$false` | Switch to add TFS comments as a section with the migrated work item                                                                         |
+| `-gl_host`                      | Yes      |          | GitLab host, e.g. https://git |
+| `-gl_pat`                       | Yes      |          | GitLab PAT (Personal Access Token) |
 
 + **Note**: With `-gl_update_assigned_to $true`, you/your users will receive a lot of emails from GitLab when the user is assigned to the issue

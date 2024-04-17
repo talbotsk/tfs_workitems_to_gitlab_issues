@@ -1,2 +1,7 @@
 .history/
+.temp/
 .vs/
+.vscode/
+temp_*.txt
+temp_*.html
+*\ –\ kópia*.*
