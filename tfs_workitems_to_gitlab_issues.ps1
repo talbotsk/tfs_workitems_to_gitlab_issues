@@ -229,18 +229,26 @@ if (!$tfs_migrate_closed_workitems) {
 
 #region Get Epics (emulated as Labels)
 $gl_project_url = "$gl_host/api/v4/projects/$gl_group%2F$gl_project/"
-$gl_labels = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels" 2>.temp\error.out | ConvertFrom-Json
 $labels = [System.Collections.Arraylist]@()
-foreach ($gl_label in $gl_labels) {
-    $labels.Add($gl_label.name) > $null
-}
+$page = 1
+do {
+    $gl_labels = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    foreach ($gl_label in $gl_labels) {
+        $labels.Add($gl_label.name) > $null
+    }
+    $page += 1
+} while ($gl_labels.Count -gt 0)
 
 #region Get Milestones
-$gl_milestones = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones" 2>.temp\error.out | ConvertFrom-Json
 $milestones = New-Object 'system.collections.generic.dictionary[string,string]'
-foreach ($gl_milestone in $gl_milestones) {
-    $milestones[$gl_milestone.title] = $gl_milestone.id
-}
+$page = 1
+do {
+    $gl_milestones = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    foreach ($gl_milestone in $gl_milestones) {
+        $milestones[$gl_milestone.title] = $gl_milestone.id
+    }
+    $page += 1
+} while ($gl_milestones.Count -gt 0)
 
 $unknown_users = New-Object 'system.collections.generic.dictionary[string,string]'
 
@@ -281,7 +289,9 @@ do {
         $details_json = Get-Content -Path ./.temp/temp_work_item.txt -Encoding UTF8
         $details = $details_json | ConvertFrom-Json
 
-        $title = EscapeText("$($details.fields.{System.WorkItemType}) $workitemId $($details.fields.{System.Title})")
+        $title = "$($details.fields.{System.WorkItemType}) $workitemId $($details.fields.{System.Title})"
+        $title = $title.Substring(0, [math]::Min($title.Length, 255))
+        $title = EscapeText($title)
 
         Write-Host "Copying work item $workitemId to $gl_group/$gl_project on gitlab";
 
