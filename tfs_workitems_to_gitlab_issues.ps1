@@ -149,13 +149,7 @@ function TfsAttachmentToGitLab([string] $dateTime, [System.Object] $item) {
     # gitlab version "16.7.0-ee"
     # https://docs.gitlab.com/ee/api/projects.html#upload-a-file
     # https://git/XXX/YYY/uploads/c263e46876497601e6d06d5ff71f6048/quokka.jpg
-    $curlArguments = 
-    "--request", "POST",
-    "--header", "PRIVATE-TOKEN: $gl_pat", 
-    "--form", "file=@./.temp/$($item.attributes.name)", 
-    "$($gl_project_url)uploads"
-
-    $curl_response = & $curlExecutable $curlArguments 2>.temp\error.out
+    $curl_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -F "file=@./.temp/$($item.attributes.name)" "$($gl_project_url)uploads" 2>.temp\error.out
 
     Remove-Item -Path "./.temp/$($item.attributes.name)" -ErrorAction SilentlyContinue
 
@@ -232,7 +226,7 @@ $gl_project_url = "$gl_host/api/v4/projects/$gl_group%2F$gl_project/"
 $labels = [System.Collections.Arraylist]@()
 $page = 1
 do {
-    $gl_labels = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    $gl_labels = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels?page=$page" 2>.temp\error.out | ConvertFrom-Json
     foreach ($gl_label in $gl_labels) {
         $labels.Add($gl_label.name) > $null
     }
@@ -243,7 +237,7 @@ do {
 $milestones = New-Object 'system.collections.generic.dictionary[string,string]'
 $page = 1
 do {
-    $gl_milestones = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    $gl_milestones = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>.temp\error.out | ConvertFrom-Json
     foreach ($gl_milestone in $gl_milestones) {
         $milestones[$gl_milestone.title] = $gl_milestone.id
     }
@@ -258,6 +252,7 @@ $break = $false
 
 do {
     $where = " and [ID] > $highestId"
+
     #region Debugging Specific IDs
     # if ($true -ne $tfs_production_run) {
     #     $where = " and ([ID] = 0"
@@ -269,6 +264,7 @@ do {
     #     # $where += " or [ID] = 860"     # Username is empty? $gl_attachment_comment += "| $(UtcStringToLocalDateTimeString($dateTime)) | $(NameToLink($item.attributes.comment.Split(" by ")[-1].Split(" at ")[0])) | [URL]($($tfs_work_item_attachment_url)) |`n`n"
     #     # $where += " or [ID] = 1026"    # reproSteps
     #     # $where += " or [ID] = 12638"    # acceptance criteria
+    #     # $where += " or [ID] > 2035"    # test for minimal ID
 
     #     $where += ")"
     # }
@@ -281,6 +277,10 @@ do {
 
     :ForEachWorkItems ForEach ($workitem in $query) {
         $workitemId = $workitem.id;
+        if ($workitemId -lt $highestId) {
+            Write-Host "Workitem ID is less than highest ID: $workitemId < $highestId"
+            break
+        }
         $highestId = $workitemId
 
         $details_json = tfx workitem show --work-item-id $workitem.id --json
@@ -489,7 +489,7 @@ do {
         #region Area To Epic(Label) emulation - https://pm.stackexchange.com/questions/25038/how-to-implement-epics-on-gitlab-without-enterprise-edition
         $epic = "epic:$area_path"
         if (-not $labels.Contains($epic)) {
-            $gl_create_label_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --data "name=$([URI]::EscapeUriString($epic))&description=$([URI]::EscapeUriString($area_path))&color=#9400d3" "$($gl_project_url)labels" 2>.temp\error.out  | ConvertFrom-Json
+            $gl_create_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -d "name=$([URI]::EscapeUriString($epic))&description=$([URI]::EscapeUriString($area_path))&color=#9400d3" "$($gl_project_url)labels" 2>.temp\error.out  | ConvertFrom-Json
 
             if ($gl_create_label_response.id -gt 0 -and $gl_create_label_response.name -eq $epic) {
                 $labels.Add($epic)
@@ -499,7 +499,7 @@ do {
             }
         }
 
-        $gl_add_label_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request PUT --url "$($gl_project_url)issues/$($issue_id)?add_labels=$([URI]::EscapeUriString($epic))" 2>.temp\error.out | ConvertFrom-Json
+        $gl_add_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?add_labels=$([URI]::EscapeUriString($epic))" 2>.temp\error.out | ConvertFrom-Json
         if ($gl_add_label_response.id -gt 0) {
         }
         else {
@@ -511,7 +511,7 @@ do {
         #region Iteration Path To Milestone
         $milestone = $iteration_path
         if (-not $milestones.Keys.Contains($milestone)) {
-            $gl_create_milestone_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request POST --data "title=$([URI]::EscapeUriString($milestone))&description=$([URI]::EscapeUriString($milestone))" "$($gl_project_url)milestones" 2>.temp\error.out | ConvertFrom-Json
+            $gl_create_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -d "title=$([URI]::EscapeUriString($milestone))&description=$([URI]::EscapeUriString($milestone))" "$($gl_project_url)milestones" 2>.temp\error.out | ConvertFrom-Json
 
             if ($gl_create_milestone_response.id -gt 0 -and $gl_create_milestone_response.title -eq $milestone) {
                 $milestones[$milestone] = $gl_create_milestone_response.id
@@ -521,7 +521,7 @@ do {
             }
         }
 
-        $gl_add_milestone_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request PUT --url "$($gl_project_url)issues/$($issue_id)?milestone_id=$($milestones[$milestone])" 2>.temp\error.out | ConvertFrom-Json
+        $gl_add_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?milestone_id=$($milestones[$milestone])" 2>.temp\error.out | ConvertFrom-Json
         if ($gl_add_milestone_response.id -gt 0) {
         }
         else {
@@ -554,9 +554,9 @@ do {
         # }
     }
 
-    if ($break) {
-        break
-    }
+    # if ($break) {
+    #     break
+    # }
 
 } while ($query.Count -gt 0)
 
