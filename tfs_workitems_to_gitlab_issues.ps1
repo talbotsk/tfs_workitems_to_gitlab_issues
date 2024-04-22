@@ -143,13 +143,18 @@ function TfsAttachmentToGitLab([string] $dateTime, [System.Object] $item) {
     $attachmentId = $item.url.Substring($indexOfSlash + 1)
     # https://learn.microsoft.com/en-us/previous-versions/azure/devops/integrate/previous-apis/wit/attachments?view=tfs-2017
     $tfs_work_item_attachment_url = "$tfs_url/_apis/wit/attachments/$attachmentId"
+    Remove-Item -Path "./.temp/attachment" -ErrorAction SilentlyContinue
     Remove-Item -Path "./.temp/$($item.attributes.name)" -ErrorAction SilentlyContinue
-    $tfs_get_attachment_response = Invoke-RestMethod "$tfs_work_item_attachment_url" -Method 'GET' -Headers $headers -OutFile "./.temp/$($item.attributes.name)"
+    $tfs_get_attachment_response = Invoke-RestMethod "$tfs_work_item_attachment_url" -Method 'GET' -Headers $headers -OutFile "./.temp/attachment"
+
+    # Fix of "Cannot perform operation because the wildcard path ...[...]... did not resolve to a file."
+    # https://stackoverflow.com/questions/55869623/how-to-escape-square-brackets-in-file-paths-with-invoke-webrequests-outfile-pa
+    Rename-Item -Path "./.temp/attachment" -NewName "$($item.attributes.name)"
 
     # gitlab version "16.7.0-ee"
     # https://docs.gitlab.com/ee/api/projects.html#upload-a-file
     # https://git/XXX/YYY/uploads/c263e46876497601e6d06d5ff71f6048/quokka.jpg
-    $curl_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -F "file=@./.temp/$($item.attributes.name)" "$($gl_project_url)uploads" 2>.temp\error.out
+    $curl_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -F "file=@./.temp/$($item.attributes.name)" "$($gl_project_url)uploads" 2>>.temp\error.txt
 
     Remove-Item -Path "./.temp/$($item.attributes.name)" -ErrorAction SilentlyContinue
 
@@ -190,14 +195,18 @@ function TfsHistoryToGitLabComment([string] $dateTime, [System.Object] $history)
     $gl_history_comment += "<p>`n`n$($history.value)</p>"
     $gl_history_comment += $tfs_original_workitem_json_end
 
-    $gl_history_comment = EscapeText($gl_history_comment)
-    $comment_url = glab issue note $issue_id -R "$gl_group/$gl_project" -m "$($gl_history_comment)"
+    Remove-Item -Path ./.temp/comment.txt -ErrorAction SilentlyContinue
+    $gl_history_comment | Out-File -FilePath ./.temp/comment.txt
+
+    $comment_url = Invoke-RestMethod -Method Post -Body @{ body = Get-Content -Raw -Path '.\.temp\comment.txt' } -Headers @{ 'PRIVATE-TOKEN' = $gl_pat } -Uri "$($gl_project_url)issues/$issue_id/notes"
     if ($?) {
-        Write-Host "  comment created: $comment_url"
+        Write-Host "  comment created: $gl_host/$gl_group/$gl_project/-/issues/$issue_id#note_$($comment_url.id)"
     }
     else {
         Write-Host "  comment was not created!"
     }
+
+    Remove-Item -Path ./.temp/comment.txt -ErrorAction SilentlyContinue
 }
 
 #region Script Beginning
@@ -226,7 +235,7 @@ $gl_project_url = "$gl_host/api/v4/projects/$gl_group%2F$gl_project/"
 $labels = [System.Collections.Arraylist]@()
 $page = 1
 do {
-    $gl_labels = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    $gl_labels = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels?page=$page" 2>>.temp\error.txt | ConvertFrom-Json
     foreach ($gl_label in $gl_labels) {
         $labels.Add($gl_label.name) > $null
     }
@@ -237,7 +246,7 @@ do {
 $milestones = New-Object 'system.collections.generic.dictionary[string,string]'
 $page = 1
 do {
-    $gl_milestones = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>.temp\error.out | ConvertFrom-Json
+    $gl_milestones = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>>.temp\error.txt | ConvertFrom-Json
     foreach ($gl_milestone in $gl_milestones) {
         $milestones[$gl_milestone.title] = $gl_milestone.id
     }
@@ -255,15 +264,18 @@ do {
 
     #region Debugging Specific IDs
     # if ($true -ne $tfs_production_run) {
-    #     $where = " and ([ID] = 0"
+    #     $where += " and ([ID] = 0"
         
     #     # $where += " or [ID] = 12715" # Big Task with Attachments
-    #     # $where += " or [ID] = 994"   # Tags test with non-existing user
+    #     # $where += " or [ID] = 994"   # Tags test with non-existing user + Extra Long Title
     #     # $where += " or [ID] = 9508"    # acceptance criteria
     #     # $where += " or [ID] = 15835"    # system info
     #     # $where += " or [ID] = 860"     # Username is empty? $gl_attachment_comment += "| $(UtcStringToLocalDateTimeString($dateTime)) | $(NameToLink($item.attributes.comment.Split(" by ")[-1].Split(" at ")[0])) | [URL]($($tfs_work_item_attachment_url)) |`n`n"
     #     # $where += " or [ID] = 1026"    # reproSteps
     #     # $where += " or [ID] = 12638"    # acceptance criteria
+    #     # $where += " or [ID] = 12596"    # Program 'glab.exe' failed to run: The filename or extension is too longAt C:\temp\TfsToGitLab\tfs_workitems_to_gitlab_issues.ps1:194 char:20
+    #     # $where += " or [ID] = 12677"    # ERROR: History was not created!
+    #     # $where += " or [ID] = 12703"    # Invoke-RestMethod : Cannot perform operation because the wildcard path ./.temp/20_hi-res [nb].png did not resolve to a file.
     #     # $where += " or [ID] > 2035"    # test for minimal ID
 
     #     $where += ")"
@@ -289,13 +301,22 @@ do {
         $details_json = Get-Content -Path ./.temp/temp_work_item.txt -Encoding UTF8
         $details = $details_json | ConvertFrom-Json
 
-        $title = "$($details.fields.{System.WorkItemType}) $workitemId $($details.fields.{System.Title})"
-        $title = $title.Substring(0, [math]::Min($title.Length, 255))
-        $title = EscapeText($title)
+        $title_orig = $details.fields.{System.Title}
+        $title = "$($details.fields.{System.WorkItemType}) $workitemId $title_orig"
+        $title_truncated = $false
+        if ($title.Length -gt 255) {
+            $title = $title.Substring(0, [math]::Min($title.Length, 255))
+            $title_truncated = $true
+        }
 
         Write-Host "Copying work item $workitemId to $gl_group/$gl_project on gitlab";
 
         $description = "`n"
+
+        if ($title_truncated -eq $true) {
+            $description += "Original title:`n"
+            $description += "## $title_orig`n`n"
+        }
 
         # $url="[Original Work Item URL](https://dev.azure.com/$ado_org/$tfs_project/_workitems/edit/$($workitem.id))"
         # http://tfs1:8080/tfs/TFSProjectCollection/project/team/_workitems#id=12715&triage=true&_a=edit
@@ -363,8 +384,19 @@ do {
         #region Create the Issue
         # API https://docs.gitlab.com/ee/api/issues.html#new-issue https://stackoverflow.com/a/72943845/1145859
         # Rate limits on issue and epic creation https://docs.gitlab.com/ee/administration/settings/rate_limit_on_issues_creation.html
-        $description = EscapeText($description)
-        $issue_url = glab issue create -l "$work_item_type" -t "$title" -R "$gl_group/$gl_project" -y $linked_issues -d "$description"
+        Remove-Item -Path ./.temp/description.txt -ErrorAction SilentlyContinue
+        $description | Out-File -FilePath ./.temp/description.txt
+        $body = @{ 
+            title       = "$title" 
+            description = Get-Content -Raw -Path '.\.temp\description.txt' 
+            labels      = "$work_item_type"
+        }
+       
+        $gl_issue_creation = Invoke-RestMethod -Method Post -Body $body -Headers @{ 'PRIVATE-TOKEN' = $gl_pat } -Uri "$($gl_project_url)issues"
+       
+        $issue_url = $gl_issue_creation.web_url
+        Remove-Item -Path ./.temp/description.txt -ErrorAction SilentlyContinue
+
         # "<" redirection doesn't work https://stackoverflow.com/questions/11447598/redirecting-standard-input-output-in-windows-powershell
         $issue_id = $issue_url.Split("/-/issues/")[-1]
 
@@ -402,14 +434,17 @@ do {
         }
 
         # add the history
-        $gl_note = EscapeText($gl_note)
-        $note_url = glab issue note $issue_id -R "$gl_group/$gl_project" -m "$($gl_note)"
+        Remove-Item -Path ./.temp/history.txt -ErrorAction SilentlyContinue
+        $gl_note | Out-File -FilePath ./.temp/history.txt
+
+        $note_response = Invoke-RestMethod -Method Post -Body @{ body = Get-Content -Raw -Path '.\.temp\history.txt' } -Headers @{ 'PRIVATE-TOKEN' = $gl_pat } -Uri "$($gl_project_url)issues/$issue_id/notes"
         if ($?) {
-            # Write-Host "  History created: $note_url"
+            # Write-Host "  History created: $gl_host/$gl_group/$gl_project/-/issues/$issue_id#note_$($note_response.id)"
         }
         else {
-            Write-Host "ERROR: History was not created!"
+            Write-Host "ERROR: History was not created! $note_response"
         }
+        Remove-Item -Path ./.temp/history.txt -ErrorAction SilentlyContinue
 
         $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
         # https://en.wikipedia.org/wiki/Basic_access_authentication
@@ -489,7 +524,7 @@ do {
         #region Area To Epic(Label) emulation - https://pm.stackexchange.com/questions/25038/how-to-implement-epics-on-gitlab-without-enterprise-edition
         $epic = "epic:$area_path"
         if (-not $labels.Contains($epic)) {
-            $gl_create_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -d "name=$([URI]::EscapeUriString($epic))&description=$([URI]::EscapeUriString($area_path))&color=#9400d3" "$($gl_project_url)labels" 2>.temp\error.out  | ConvertFrom-Json
+            $gl_create_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -d "name=$([URI]::EscapeUriString($epic))&description=$([URI]::EscapeUriString($area_path))&color=#9400d3" "$($gl_project_url)labels" 2>>.temp\error.txt  | ConvertFrom-Json
 
             if ($gl_create_label_response.id -gt 0 -and $gl_create_label_response.name -eq $epic) {
                 $labels.Add($epic)
@@ -499,7 +534,7 @@ do {
             }
         }
 
-        $gl_add_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?add_labels=$([URI]::EscapeUriString($epic))" 2>.temp\error.out | ConvertFrom-Json
+        $gl_add_label_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?add_labels=$([URI]::EscapeUriString($epic))" 2>>.temp\error.txt | ConvertFrom-Json
         if ($gl_add_label_response.id -gt 0) {
         }
         else {
@@ -511,7 +546,7 @@ do {
         #region Iteration Path To Milestone
         $milestone = $iteration_path
         if (-not $milestones.Keys.Contains($milestone)) {
-            $gl_create_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -d "title=$([URI]::EscapeUriString($milestone))&description=$([URI]::EscapeUriString($milestone))" "$($gl_project_url)milestones" 2>.temp\error.out | ConvertFrom-Json
+            $gl_create_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X POST -d "title=$([URI]::EscapeUriString($milestone))&description=$([URI]::EscapeUriString($milestone))" "$($gl_project_url)milestones" 2>>.temp\error.txt | ConvertFrom-Json
 
             if ($gl_create_milestone_response.id -gt 0 -and $gl_create_milestone_response.title -eq $milestone) {
                 $milestones[$milestone] = $gl_create_milestone_response.id
@@ -521,7 +556,7 @@ do {
             }
         }
 
-        $gl_add_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?milestone_id=$($milestones[$milestone])" 2>.temp\error.out | ConvertFrom-Json
+        $gl_add_milestone_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" -X PUT "$($gl_project_url)issues/$($issue_id)?milestone_id=$($milestones[$milestone])" 2>>.temp\error.txt | ConvertFrom-Json
         if ($gl_add_milestone_response.id -gt 0) {
         }
         else {
@@ -544,7 +579,13 @@ do {
         #region close out the issue if it's closed on the TFS side
         $tfs_closure_states = "Done", "Closed", "Resolved", "Removed"
         if ($tfs_closure_states.Contains($details.fields.{System.State})) {
-            glab issue close $issue_id -R "$gl_group/$gl_project"
+            $close_response = Invoke-RestMethod -Method Put -Headers @{ 'PRIVATE-TOKEN' = $gl_pat } -Uri "$($gl_project_url)issues/$($issue_id)?state_event=close"
+            if ($?) {
+                Write-Host "  Issue $issue_id was closed"
+            }
+            else {
+                Write-Host "ERROR: Issue $issue_id was NOT closed! $close_response"
+            }
         }
 
         #region Debugging Count
