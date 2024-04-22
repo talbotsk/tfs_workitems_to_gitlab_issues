@@ -217,6 +217,8 @@ if (!(Test-Path -Path .\.temp)) {
     New-Item -Path ".\" -Name ".temp" -ItemType Directory
 }
 
+Remove-Item -Path "./.temp/error.txt" -ErrorAction SilentlyContinue
+
 # Set the auth token for tfx commands. Note: PAT works only for TFS 2017 and above. Basic authentification is needed for TFS 2015. https://stackoverflow.com/a/35101750/1145859
 # $env:TFS_EXT_PAT = $tfs_pat;
 # Set the auth token for gl commands
