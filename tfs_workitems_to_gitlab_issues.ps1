@@ -248,7 +248,10 @@ do {
 $milestones = New-Object 'system.collections.generic.dictionary[string,string]'
 $page = 1
 do {
-    $gl_milestones = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>>.temp\error.txt | ConvertFrom-Json
+    $gl_milestones_response = & $curlExecutable -s -H "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones?page=$page" 2>>.temp\error.txt
+    $gl_milestones_response | Out-File -FilePath ./.temp/milestones.txt -Encoding OEM
+    $gl_milestones_response = Get-Content -Path ./.temp/milestones.txt -Encoding UTF8
+    $gl_milestones = $gl_milestones_response | ConvertFrom-Json
     foreach ($gl_milestone in $gl_milestones) {
         $milestones[$gl_milestone.title] = $gl_milestone.id
     }

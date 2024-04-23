@@ -9,14 +9,17 @@ param (
 
 Clear-Host
 
+Remove-Item -Path "./.temp/error.txt" -ErrorAction SilentlyContinue
+
 $gl_project_url = "$gl_host/api/v4/projects/$gl_group%2F$gl_project/"
 
 
 
 do {
-    $issues = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)issues" 2>.temp\error.out | ConvertFrom-Json
+    $issues = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)issues" 2>>.temp\error.txt | ConvertFrom-Json
     ForEach ($issue in $issues) {
-        glab issue delete $issue.iid -R "$gl_group/$gl_project"
+        Write-Host "Deleting $($issue.iid)"
+        $delete_issue_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request DELETE "$($gl_project_url)issues/$($issue.iid)" 2>>.temp\error.txt
     }
 } while ($issues.Count -gt 0)
 
@@ -24,21 +27,21 @@ Write-Host "Succesfully deleted all issues."
 
 
 
-$labels = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels" 2>.temp\error.out | ConvertFrom-Json
+$labels = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)labels" 2>>.temp\error.txt | ConvertFrom-Json
 ForEach ($label in $labels) {
     if (!$label.name.StartsWith("epic:")) {
         continue
     }
-    $label_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request DELETE "$($gl_project_url)labels/$([URI]::EscapeUriString($label.name))" 2>.temp\error.out
+    $label_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request DELETE "$($gl_project_url)labels/$([URI]::EscapeUriString($label.name))" 2>>.temp\error.txt
 }
 
 Write-Host "Succesfully deleted all epic labels."
 
 
 
-$milestones = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones" 2>.temp\error.out | ConvertFrom-Json
+$milestones = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" "$($gl_project_url)milestones" 2>>.temp\error.txt | ConvertFrom-Json
 ForEach ($milestone in $milestones) {
-    $milestone_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request DELETE "$($gl_project_url)milestones/$($milestone.id)" 2>.temp\error.out
+    $milestone_response = & $curlExecutable --header "PRIVATE-TOKEN: $gl_pat" --request DELETE "$($gl_project_url)milestones/$($milestone.id)" 2>>.temp\error.txt
 }
 
 Write-Host "Succesfully deleted all milestones."
